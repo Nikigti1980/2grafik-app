@@ -3,112 +3,112 @@ import random
 from calendar import monthrange
 from datetime import datetime, timedelta
 import os
+import streamlit as st
+from io import BytesIO
 
-# Зареждане на файла с данни
-file_path = 'input_schedule.xlsx'  # <-- тук качваш твоя файл
-summary_df = pd.read_excel(file_path, sheet_name='Обобщение')
+def to_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    processed_data = output.getvalue()
+    return processed_data
 
-# Взимане на нужните данни
-employees_plan = summary_df[['Име', 'Планирани работни часове']]
+st.title("Генератор на работен график")
+st.write("Streamlit е стартиран успешно.")
 
-# Въвеждане на работен месец и година
-year = int(input("Въведете година (напр. 2025): "))
-month = int(input("Въведете месец (1-12): "))
+uploaded_file = st.file_uploader("Качи Excel файл с таб 'Обобщение'", type=["xlsx"])
 
-num_days = monthrange(year, month)[1]
-days = [datetime(year, month, day) for day in range(1, num_days + 1)]
+year = st.number_input("Въведете година:", min_value=2000, max_value=2100, value=datetime.now().year)
+month = st.number_input("Въведете месец (1-12):", min_value=1, max_value=12, value=datetime.now().month)
 
-# Дефиниране на типа смени
-shift_types = {
-    '4h': 4,
-    '6h': 6,
-    '8h': 9  # 8 работни + 1 присъствен час за почивка
-}
+if uploaded_file is not None:
+    if st.button("Генерирай график"):
+        try:
+            summary_df = pd.read_excel(uploaded_file, sheet_name='Обобщение')
+            employees_plan = summary_df[['Име', 'Планирани работни часове']]
 
-# Силни дни (повече персонал)
-strong_days = [4, 5]  # Петък=4, Събота=5
+            num_days = monthrange(year, month)[1]
+            days = [datetime(year, month, day) for day in range(1, num_days + 1)]
 
-# Логика за работни и почивни дни
-work_patterns = [
-    (3, 2),  # оптимално
-    (3, 1),  # динамично
-    (4, 2),  # тежко натоварване
-    (2, 1)   # леко натоварване
-]
+            shift_types = {
+                '4h': 4,
+                '6h': 6,
+                '8h': 9  # 8 работни + 1 присъствен час за почивка
+            }
 
-# Инициализиране на график
-schedule = []
+            strong_days = [4, 5]  # Петък=4, Събота=5
 
-# Стартиране на планирането за всеки служител
-for idx, row in employees_plan.iterrows():
-    name = row['Име']
-    planned_hours = row['Планирани работни часове']
+            work_patterns = [
+                (3, 2),  # оптимално
+                (3, 1),  # динамично
+                (4, 2),  # тежко натоварване
+                (2, 1)   # леко натоварване
+            ]
 
-    day_pointer = 0
-    total_hours = 0
-    pattern_idx = 0
+            schedule = []
 
-    while day_pointer < len(days) and total_hours < planned_hours:
-        work_days, rest_days = work_patterns[pattern_idx % len(work_patterns)]
-        # Работни дни
-        for _ in range(work_days):
-            if day_pointer >= len(days) or total_hours >= planned_hours:
-                break
+            for idx, row in employees_plan.iterrows():
+                name = row['Име']
+                planned_hours = row['Планирани работни часове']
 
-            day = days[day_pointer]
+                day_pointer = 0
+                total_hours = 0
+                pattern_idx = 0
 
-            # Избор на смяна, като предпочитаме 8h, но ако наближаваме лимита - 4h или 6h
-            remaining = planned_hours - total_hours
-            if remaining >= 8:
-                shift = '8h'
-            elif remaining >= 6:
-                shift = '6h'
-            else:
-                shift = '4h'
+                while day_pointer < len(days) and total_hours < planned_hours:
+                    work_days, rest_days = work_patterns[pattern_idx % len(work_patterns)]
 
-            hours = shift_types[shift]
+                    for _ in range(work_days):
+                        if day_pointer >= len(days) or total_hours >= planned_hours:
+                            break
 
-            schedule.append({
-                'Дата': day.strftime('%Y-%m-%d'),
-                'Ден': day.strftime('%A'),
-                'Служител': name,
-                'Смяна': shift,
-                'Часове': hours
-            })
+                        day = days[day_pointer]
 
-            total_hours += (hours if shift != '8h' else 8)  # Само 8ч работа, 9ч присъствие
-            day_pointer += 1
+                        remaining = planned_hours - total_hours
+                        if remaining >= 8:
+                            shift = '8h'
+                        elif remaining >= 6:
+                            shift = '6h'
+                        else:
+                            shift = '4h'
 
-        # Почивни дни
-        day_pointer += rest_days
-        pattern_idx += 1
+                        hours = shift_types[shift]
 
-# Преобразуване в DataFrame
-schedule_df = pd.DataFrame(schedule)
+                        schedule.append({
+                            'Дата': day.strftime('%Y-%m-%d'),
+                            'Ден': day.strftime('%A'),
+                            'Служител': name,
+                            'Смяна': shift,
+                            'Часове': hours
+                        })
 
-# Проверка на реално планираните часове
-summary_report = schedule_df.groupby('Служител')['Часове'].sum().reset_index()
-summary_report = summary_report.merge(employees_plan, left_on='Служител', right_on='Име')
-summary_report['Статус'] = summary_report.apply(lambda row: 'ОК' if row['Часове'] <= row['Планирани работни часове'] else 'НАД', axis=1)
+                        total_hours += (hours if shift != '8h' else 8)
+                        day_pointer += 1
 
-# Запазване в директорията Documents
-save_directory = os.path.expanduser('~/Documents/Grafici')
-os.makedirs(save_directory, exist_ok=True)
+                    day_pointer += rest_days
+                    pattern_idx += 1
 
-base_filename = os.path.join(save_directory, 'grafik_magazin.xlsx')
-summary_filename = os.path.join(save_directory, 'grafik_summary.xlsx')
-filename = base_filename
+            schedule_df = pd.DataFrame(schedule)
 
-counter = 1
-while True:
-    try:
-        schedule_df.to_excel(filename, index=False)
-        summary_report.to_excel(summary_filename, index=False)
-        break  # Успешно записани файлове
-    except PermissionError:
-        filename = os.path.join(save_directory, f'grafik_magazin_{counter}.xlsx')
-        summary_filename = os.path.join(save_directory, f'grafik_summary_{counter}.xlsx')
-        counter += 1
+            summary_report = schedule_df.groupby('Служител')['Часове'].sum().reset_index()
+            summary_report = summary_report.merge(employees_plan, left_on='Служител', right_on='Име')
+            summary_report['Статус'] = summary_report.apply(lambda row: 'ОК' if row['Часове'] <= row['Планирани работни часове'] else 'НАД', axis=1)
 
-print(f"Графикът е успешно генериран и записан в '{filename}'")
-print(f"Отчетът е успешно записан в '{summary_filename}'")
+            st.success("Графикът беше успешно генериран!")
+
+            st.download_button(
+                label="Изтегли график (Excel)",
+                data=to_excel(schedule_df),
+                file_name='grafik_magazin.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+            st.download_button(
+                label="Изтегли отчет (Excel)",
+                data=to_excel(summary_report),
+                file_name='grafik_summary.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+        except Exception as e:
+            st.error(f"Възникна грешка при обработката на файла: {e}")
