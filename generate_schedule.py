@@ -19,12 +19,20 @@ st.subheader("Настройка на работното време по дни 
 working_hours = {}
 weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
+col1, col2 = st.columns(2)
+with col1:
+    default_start_time = st.time_input("Начало на работа (за всички дни)", value=datetime.strptime("09:00", "%H:%M").time(), key="start_default")
+with col2:
+    default_end_time = st.time_input("Край на работа (за всички дни)", value=datetime.strptime("21:00", "%H:%M").time(), key="end_default")
+
+st.markdown("**При нужда коригирай работното време за конкретен ден:**")
+
 for day in weekdays:
     col1, col2 = st.columns(2)
     with col1:
-        start_time = st.time_input(f"Начало на работа ({day})", key=f"start_{day}")
+        start_time = st.time_input(f"Начало на работа ({day})", value=default_start_time, key=f"start_{day}")
     with col2:
-        end_time = st.time_input(f"Край на работа ({day})", key=f"end_{day}")
+        end_time = st.time_input(f"Край на работа ({day})", value=default_end_time, key=f"end_{day}")
     working_hours[day] = (start_time, end_time)
 
 uploaded_file = st.file_uploader("Качи Excel файл с таб 'Обобщение'", type=["xlsx"])
