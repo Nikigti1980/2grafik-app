@@ -37,24 +37,26 @@ if uploaded_file is not None:
             }
 
             work_patterns = [
-                (3, 2),  # оптимално
-                (3, 1),  # динамично
-                (4, 2),  # тежко натоварване
-                (2, 1)   # леко натоварване
+                (3, 2),
+                (3, 1),
+                (4, 2),
+                (2, 1)
             ]
 
             schedule = []
+
+            shift_start_times = ['08:00', '09:00', '10:00', '11:00', '12:00']
 
             for idx, row in employees_plan.iterrows():
                 name = row['Име']
                 planned_hours = row['Планирани работни часове']
 
-                day_pointer = idx % 7  # Добавяме отместване за всеки служител, за да не почват в един и същ ден
+                day_pointer = idx % 7
                 total_hours = 0
-                pattern_idx = 0
+                pattern_idx = idx % len(work_patterns)
 
                 while day_pointer < len(days) and total_hours < planned_hours:
-                    work_days, rest_days = work_patterns[pattern_idx % len(work_patterns)]
+                    work_days, rest_days = work_patterns[pattern_idx]
 
                     for _ in range(work_days):
                         if day_pointer >= len(days) or total_hours >= planned_hours:
@@ -63,19 +65,24 @@ if uploaded_file is not None:
                         day = days[day_pointer]
 
                         remaining = planned_hours - total_hours
-                        if remaining >= 8:
-                            shift = '8h'
-                        elif remaining >= 6:
-                            shift = '6h'
+
+                        if day.weekday() in [4, 5]:  # Петък или събота
+                            shift = random.choices(['8h', '6h'], weights=[0.7, 0.3])[0]
                         else:
-                            shift = '4h'
+                            shift = random.choices(['8h', '6h', '4h'], weights=[0.5, 0.3, 0.2])[0]
 
                         hours = shift_types[shift]
+
+                        start_time = random.choice(shift_start_times)
+                        start_dt = datetime.strptime(start_time, '%H:%M')
+                        end_dt = (start_dt + timedelta(hours=(hours if shift != '8h' else 8))).time()
 
                         schedule.append({
                             'Дата': day.strftime('%Y-%m-%d'),
                             'Ден': day.strftime('%A'),
                             'Служител': name,
+                            'Начало': start_time,
+                            'Край': end_dt.strftime('%H:%M'),
                             'Смяна': shift,
                             'Часове': hours
                         })
@@ -84,7 +91,7 @@ if uploaded_file is not None:
                         day_pointer += 1
 
                     day_pointer += rest_days
-                    pattern_idx += 1
+                    pattern_idx = (pattern_idx + 1) % len(work_patterns)
 
             schedule_df = pd.DataFrame(schedule)
 
