@@ -36,8 +36,6 @@ if uploaded_file is not None:
                 '8h': 9  # 8 работни + 1 присъствен час за почивка
             }
 
-            strong_days = [4, 5]  # Петък=4, Събота=5
-
             work_patterns = [
                 (3, 2),  # оптимално
                 (3, 1),  # динамично
@@ -51,7 +49,7 @@ if uploaded_file is not None:
                 name = row['Име']
                 planned_hours = row['Планирани работни часове']
 
-                day_pointer = 0
+                day_pointer = idx % 7  # Добавяме отместване за всеки служител, за да не почват в един и същ ден
                 total_hours = 0
                 pattern_idx = 0
 
