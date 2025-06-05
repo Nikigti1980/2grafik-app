@@ -14,7 +14,18 @@ def to_excel(df):
     return processed_data
 
 st.title("Генератор на работен график")
-st.write("Streamlit е стартиран успешно.")
+
+st.subheader("Настройка на работното време по дни от седмицата")
+working_hours = {}
+weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+for day in weekdays:
+    col1, col2 = st.columns(2)
+    with col1:
+        start_time = st.time_input(f"Начало на работа ({day})", key=f"start_{day}")
+    with col2:
+        end_time = st.time_input(f"Край на работа ({day})", key=f"end_{day}")
+    working_hours[day] = (start_time, end_time)
 
 uploaded_file = st.file_uploader("Качи Excel файл с таб 'Обобщение'", type=["xlsx"])
 
@@ -33,7 +44,7 @@ if uploaded_file is not None:
             shift_types = {
                 '4h': 4,
                 '6h': 6,
-                '8h': 9  # 8 работни + 1 присъствен час за почивка
+                '8h': 9
             }
 
             work_patterns = [
@@ -44,8 +55,6 @@ if uploaded_file is not None:
             ]
 
             schedule = []
-
-            shift_start_times = ['08:00', '09:00', '10:00', '11:00', '12:00']
 
             for idx, row in employees_plan.iterrows():
                 name = row['Име']
@@ -63,26 +72,33 @@ if uploaded_file is not None:
                             break
 
                         day = days[day_pointer]
+                        weekday_name = day.strftime('%A')
+                        start_time, end_time = working_hours[weekday_name]
+
+                        total_work_hours = (datetime.combine(day, end_time) - datetime.combine(day, start_time)).seconds // 3600
 
                         remaining = planned_hours - total_hours
 
-                        if day.weekday() in [4, 5]:  # Петък или събота
-                            shift = random.choices(['8h', '6h'], weights=[0.7, 0.3])[0]
+                        if total_work_hours >= 8 and remaining >= 8:
+                            shift = '8h'
+                        elif total_work_hours >= 6 and remaining >= 6:
+                            shift = '6h'
                         else:
-                            shift = random.choices(['8h', '6h', '4h'], weights=[0.5, 0.3, 0.2])[0]
+                            shift = '4h'
 
                         hours = shift_types[shift]
 
-                        start_time = random.choice(shift_start_times)
-                        start_dt = datetime.strptime(start_time, '%H:%M')
-                        end_dt = (start_dt + timedelta(hours=(hours if shift != '8h' else 8))).time()
+                        shift_start_hour = start_time.hour
+                        shift_start_minute = start_time.minute
+                        shift_start_dt = datetime(year, month, day.day, shift_start_hour, shift_start_minute)
+                        shift_end_dt = (shift_start_dt + timedelta(hours=(hours if shift != '8h' else 8))).time()
 
                         schedule.append({
                             'Дата': day.strftime('%Y-%m-%d'),
-                            'Ден': day.strftime('%A'),
+                            'Ден': weekday_name,
                             'Служител': name,
-                            'Начало': start_time,
-                            'Край': end_dt.strftime('%H:%M'),
+                            'Начало': start_time.strftime('%H:%M'),
+                            'Край': shift_end_dt.strftime('%H:%M'),
                             'Смяна': shift,
                             'Часове': hours
                         })
