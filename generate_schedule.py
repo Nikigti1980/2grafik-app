@@ -1,7 +1,7 @@
 import pandas as pd
 import random
 from calendar import monthrange
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 import streamlit as st
 from io import BytesIO
 
@@ -9,109 +9,128 @@ def to_excel(df):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
-    return output.getvalue()
+    processed_data = output.getvalue()
+    return processed_data
 
-st.title("Генератор на работен график - НОВА ВЕРСИЯ")
+st.title("Генератор на работен график — НАДГРАДЕНА ВЕРСИЯ")
 
-# Въвеждане на коефициент на сложност
-complexity_factor = st.number_input("Въведете коефициент на сложност на обекта:", min_value=1.0, max_value=5.0, value=1.8, step=0.1)
+# Базов коефициент на натовареност на обекта
+base_complexity = st.number_input("Въведете коефициент на сложност на обекта (пример 1.8)", min_value=1.0, step=0.1, value=1.0)
 
-days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+st.subheader("Настройка на работното време и пик часове по дни от седмицата")
+working_hours = {}
+peak_hours = {}
+day_load_factors = {}
+weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
-day_settings = {}
+for day in weekdays:
+    st.markdown(f"### {day}")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        start_time = st.time_input(f"Начало на работа ({day})", value=datetime.strptime("09:00", "%H:%M").time(), key=f"start_{day}")
+        end_time = st.time_input(f"Край на работа ({day})", value=datetime.strptime("21:00", "%H:%M").time(), key=f"end_{day}")
+    with col2:
+        peak_start_time = st.time_input(f"Начало на пик ({day})", value=datetime.strptime("14:00", "%H:%M").time(), key=f"peak_start_{day}")
+        peak_end_time = st.time_input(f"Край на пик ({day})", value=datetime.strptime("18:00", "%H:%M").time(), key=f"peak_end_{day}")
+    with col3:
+        load_factor = st.slider(f"Натовареност (%) ({day})", min_value=0, max_value=100, value=30, key=f"load_{day}")
 
-with st.form("work_time_form"):
-    st.subheader("Работно време и пик за седмицата")
-    default_start = st.time_input("Начало на работа (за всички дни)", time(9, 0))
-    default_end = st.time_input("Край на работа (за всички дни)", time(21, 0))
-
-    for day in days_of_week:
-        st.write(f"**{day}**")
-        start = st.time_input(f"Начало на работа ({day})", default_start, key=f"start_{day}")
-        end = st.time_input(f"Край на работа ({day})", default_end, key=f"end_{day}")
-        peak_start = st.time_input(f"Начало на пик ({day})", time(14, 0), key=f"peak_start_{day}")
-        peak_end = st.time_input(f"Край на пик ({day})", time(18, 0), key=f"peak_end_{day}")
-        load_percent = st.number_input(f"Процент натоварване ({day})", min_value=0, max_value=200, value=30 if day not in ['Friday', 'Saturday', 'Sunday'] else (45 if day != 'Saturday' else 60), key=f"load_{day}")
-        day_settings[day] = {
-            "start": start,
-            "end": end,
-            "peak_start": peak_start,
-            "peak_end": peak_end,
-            "load_percent": load_percent
-        }
-    st.form_submit_button("Запази работното време и натоварване")
+    working_hours[day] = (start_time, end_time)
+    peak_hours[day] = (peak_start_time, peak_end_time)
+    day_load_factors[day] = load_factor / 100
 
 uploaded_file = st.file_uploader("Качи Excel файл с таб 'Обобщение'", type=["xlsx"])
 
-if uploaded_file is not None and st.button("Генерирай график"):
-    try:
-        summary_df = pd.read_excel(uploaded_file, sheet_name='Обобщение')
-        employees_plan = summary_df[['Име', 'Планирани работни часове']]
+year = st.number_input("Въведете година:", min_value=2000, max_value=2100, value=datetime.now().year)
+month = st.number_input("Въведете месец (1-12):", min_value=1, max_value=12, value=datetime.now().month)
 
-        shifts = []
-        year = datetime.now().year
-        month = datetime.now().month
-        num_days = monthrange(year, month)[1]
-        employees = employees_plan['Име'].tolist()
-        emp_idx = 0
+if uploaded_file is not None:
+    if st.button("Генерирай график"):
+        try:
+            summary_df = pd.read_excel(uploaded_file, sheet_name='Обобщение')
+            employees_plan = summary_df[['Име', 'Планирани работни часове']]
 
-        for day_num in range(1, num_days + 1):
-            date = datetime(year, month, day_num)
-            day_name = date.strftime('%A')
-            settings = day_settings[day_name]
+            num_days = monthrange(year, month)[1]
+            days = [datetime(year, month, day) for day in range(1, num_days + 1)]
 
-            start_time = datetime.combine(date, settings['start'])
-            end_time = datetime.combine(date, settings['end'])
-            total_base_hours = (end_time - start_time).seconds // 3600
-            required_hours = int(total_base_hours * complexity_factor * (1 + settings['load_percent'] / 100))
+            shift_durations = [8, 6, 4]  # часове
 
-            peak_start_time = datetime.combine(date, settings['peak_start'])
-            peak_end_time = datetime.combine(date, settings['peak_end'])
+            schedule = []
 
-            current_time = start_time
-            shift_options = [8, 6, 4]
+            employee_pool = employees_plan.set_index('Име').to_dict()['Планирани работни часове']
+            employees_list = list(employee_pool.keys())
+            random.shuffle(employees_list)
+            employee_index = 0
 
-            while required_hours > 0 and current_time < end_time:
-                possible_durations = [h for h in shift_options if h <= (end_time - current_time).seconds // 3600]
-                if not possible_durations:
-                    break
-                shift_hours = max(possible_durations)
+            for day in days:
+                weekday_name = day.strftime('%A')
 
-                shift_end_time = current_time + timedelta(hours=shift_hours)
+                start_time, end_time = working_hours[weekday_name]
+                peak_start, peak_end = peak_hours[weekday_name]
 
-                # Проверка дали shift_end_time излиза извън end_time
-                if shift_end_time > end_time:
-                    shift_end_time = end_time
-                    shift_hours = (shift_end_time - current_time).seconds // 3600
-                    if shift_hours == 0:
-                        break
+                total_open_hours = (datetime.combine(day, end_time) - datetime.combine(day, start_time)).seconds // 3600
+                total_needed_hours = int(total_open_hours * base_complexity * (1 + day_load_factors[weekday_name]))
 
-                shifts.append({
-                    'Дата': date.strftime('%Y-%m-%d'),
-                    'Ден': day_name,
-                    'Служител': employees[emp_idx % len(employees)],
-                    'Начало': current_time.strftime('%H:%M'),
-                    'Край': shift_end_time.strftime('%H:%M'),
-                    'Смяна': f"{shift_hours}h",
-                    'Часове': shift_hours
-                })
-                emp_idx += 1
-                if peak_start_time <= current_time <= peak_end_time:
-                    current_time += timedelta(hours=shift_hours - 2)  # Застъпване по време на пик
-                else:
-                    current_time += timedelta(hours=shift_hours)
-                required_hours -= shift_hours
+                # Минимален брой служители според часове (поне 2-ма в пик)
+                peak_hours_needed = ((datetime.combine(day, peak_end) - datetime.combine(day, peak_start)).seconds // 3600) * 2
+                non_peak_hours = total_needed_hours - peak_hours_needed
+                shifts = []
 
-        schedule_df = pd.DataFrame(shifts)
+                # Първо запълваме пиковите часове с 2 служителя
+                for _ in range(2):
+                    shift_start = datetime.combine(day, start_time)
+                    shift_end = shift_start + timedelta(hours=8)
+                    if shift_end > datetime.combine(day, end_time):
+                        shift_end = datetime.combine(day, end_time)
+                    shifts.append((shift_start, shift_end))
 
-        st.success("Графикът беше успешно генериран!")
+                # После запълваме останалите часове
+                while non_peak_hours > 0:
+                    shift_start = datetime.combine(day, start_time)
+                    shift_end = shift_start + timedelta(hours=6)
+                    if shift_end > datetime.combine(day, end_time):
+                        shift_end = datetime.combine(day, end_time)
+                    shifts.append((shift_start, shift_end))
+                    non_peak_hours -= 6
 
-        st.download_button(
-            label="Изтегли график (Excel)",
-            data=to_excel(schedule_df),
-            file_name='grafik_magazin.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+                # Назначаване на служители с ротация
+                for shift_start, shift_end in shifts:
+                    shift_hours = (shift_end - shift_start).seconds // 3600
+                    employee = employees_list[employee_index % len(employees_list)]
+                    employee_index += 1
 
-    except Exception as e:
-        st.error(f"Възникна грешка при обработката на файла: {e}")
+                    if employee_pool[employee] >= shift_hours:
+                        employee_pool[employee] -= shift_hours
+                        schedule.append({
+                            'Дата': day.strftime('%Y-%m-%d'),
+                            'Ден': weekday_name,
+                            'Служител': employee,
+                            'Начало': shift_start.strftime('%H:%M'),
+                            'Край': shift_end.strftime('%H:%M'),
+                            'Продължителност (часове)': shift_hours
+                        })
+
+            schedule_df = pd.DataFrame(schedule)
+
+            summary_report = schedule_df.groupby('Служител')['Продължителност (часове)'].sum().reset_index()
+            summary_report = summary_report.merge(employees_plan, left_on='Служител', right_on='Име')
+            summary_report['Статус'] = summary_report.apply(lambda row: 'ОК' if row['Продължителност (часове)'] <= row['Планирани работни часове'] else 'НАД', axis=1)
+
+            st.success("Графикът беше успешно генериран!")
+
+            st.download_button(
+                label="Изтегли график (Excel)",
+                data=to_excel(schedule_df),
+                file_name='grafik_magazin.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+            st.download_button(
+                label="Изтегли отчет (Excel)",
+                data=to_excel(summary_report),
+                file_name='grafik_summary.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+        except Exception as e:
+            st.error(f"Възникна грешка при обработката на файла: {e}")
